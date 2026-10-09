@@ -1,0 +1,48 @@
+@import "tailwindcss";
+@import "uikit/dist/css/uikit.min.css";
+
+:root {
+  --tp-ink: #0f172a;
+  --tp-muted: #64748b;
+  --tp-accent: #0ea5e9;
+  --tp-warn: #f59e0b;
+  --tp-danger: #ef4444;
+  --tp-ok: #10b981;
+}
+
+body {
+  @apply m-0 min-h-screen bg-slate-100 text-slate-900 antialiased;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+#app {
+  @apply min-h-screen;
+}
+
+/* Sticky notifications: always show close (×), readable, no auto-dismiss */
+.uk-notification {
+  z-index: 1100;
+}
+
+.uk-notification-message {
+  padding-right: 2.25rem !important;
+  max-width: 22rem;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+.uk-notification-message > .uk-notification-close {
+  display: block !important;
+  opacity: 0.85 !important;
+  top: 10px;
+  right: 10px;
+}
+
+.uk-notification-message > .uk-notification-close:hover {
+  opacity: 1 !important;
+}
+
+.tp-toast {
+  padding-right: 0.25rem;
+  word-break: break-word;
+}
