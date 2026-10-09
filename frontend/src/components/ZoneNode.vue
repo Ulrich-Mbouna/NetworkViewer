@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
-import type { NetworkComponent, PowerStation } from '../api/types'
+import type { NetworkComponent, PowerStation, ZoneBalance } from '../api/types'
 import ComponentGlyph from './ComponentGlyph.vue'
 
 export type ZoneNodeData = {
@@ -11,6 +11,7 @@ export type ZoneNodeData = {
     generators: (NetworkComponent & { isNew?: boolean })[]
   })[]
   loads: (NetworkComponent & { isNew?: boolean })[]
+  balance?: ZoneBalance
 }
 
 defineProps<NodeProps<ZoneNodeData>>()
@@ -25,11 +26,38 @@ const typeLabel: Record<string, string> = {
   switch: 'Inter.',
   bus: 'Bus',
 }
+
+function fmtW(v?: number | null): string {
+  if (v == null || Number.isNaN(v)) return '—'
+  if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)} kW`
+  return `${Math.round(v)} W`
+}
+
+function prodLabel(g: NetworkComponent): string {
+  const p = g.production
+  if (!p) return typeLabel[g.type] || g.type
+  if (p.P_eff != null) return `eff ${fmtW(p.P_eff)}`
+  return typeLabel[g.type] || g.type
+}
+
+function demandLabel(l: NetworkComponent): string {
+  const d = l.demand?.P_demand
+  if (d != null) return `dem ${fmtW(d)}`
+  return typeLabel[l.type] || l.type
+}
+
+function surplusClass(b?: ZoneBalance): string {
+  const s = b?.P_surplus
+  if (s == null) return 'text-slate-500'
+  if (s > 0) return 'text-emerald-700'
+  if (s < 0) return 'text-rose-700'
+  return 'text-slate-600'
+}
 </script>
 
 <template>
   <div
-    class="zone-node min-w-[240px] max-w-[300px] rounded-xl border-2 border-sky-500 bg-gradient-to-b from-sky-50 to-white px-2.5 py-2 shadow-md"
+    class="zone-node min-w-[260px] max-w-[320px] rounded-xl border-2 border-sky-500 bg-gradient-to-b from-sky-50 to-white px-2.5 py-2 shadow-md"
   >
     <Handle type="target" :position="Position.Left" class="!bg-sky-600" />
     <Handle type="source" :position="Position.Right" class="!bg-sky-600" />
@@ -67,6 +95,39 @@ const typeLabel: Record<string, string> = {
       <div class="text-right text-[10px] leading-tight text-slate-500">
         <div>{{ data.powerStations.length }} PS</div>
         <div>{{ data.loads.length }} ch.</div>
+      </div>
+    </div>
+
+    <!-- Bilan énergétique -->
+    <div
+      v-if="data.balance"
+      class="mb-2 grid grid-cols-3 gap-1 rounded-lg border border-slate-200 bg-white/80 px-1.5 py-1 text-[9px] leading-tight"
+    >
+      <div>
+        <div class="text-slate-400">Prod</div>
+        <div class="font-semibold text-emerald-800">{{ fmtW(data.balance.P_production) }}</div>
+      </div>
+      <div>
+        <div class="text-slate-400">Demande</div>
+        <div class="font-semibold text-orange-800">{{ fmtW(data.balance.P_demand) }}</div>
+      </div>
+      <div>
+        <div class="text-slate-400">Surplus</div>
+        <div class="font-semibold" :class="surplusClass(data.balance)">
+          {{ fmtW(data.balance.P_surplus) }}
+        </div>
+      </div>
+      <div>
+        <div class="text-slate-400">P_in</div>
+        <div class="font-semibold text-sky-800">{{ fmtW(data.balance.P_in) }}</div>
+      </div>
+      <div>
+        <div class="text-slate-400">P_out</div>
+        <div class="font-semibold text-violet-800">{{ fmtW(data.balance.P_out) }}</div>
+      </div>
+      <div>
+        <div class="text-slate-400">Export.</div>
+        <div class="font-semibold text-slate-700">{{ fmtW(data.balance.P_exportable) }}</div>
       </div>
     </div>
 
@@ -118,14 +179,19 @@ const typeLabel: Record<string, string> = {
             class="comp-chip flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-1 py-0.5 pr-1.5 shadow-sm"
             :class="g.isNew ? 'comp-chip--new' : ''"
             :style="g.isNew ? { animationDelay: `${(psi + gi) * 70}ms` } : undefined"
+            :title="
+              g.production
+                ? `min ${fmtW(g.production.P_min)} · max ${fmtW(g.production.P_max)} · eff ${fmtW(g.production.P_eff)}`
+                : g.type
+            "
           >
             <ComponentGlyph :type="g.type" :size="26" :title="g.type" />
             <div class="min-w-0 leading-tight">
               <div class="truncate font-mono text-[10px] font-semibold text-slate-800">
                 {{ g.label || g.id }}
               </div>
-              <div class="text-[9px] text-slate-500">
-                {{ typeLabel[g.type] || g.type }}
+              <div class="text-[9px] text-emerald-700">
+                {{ prodLabel(g) }}
               </div>
             </div>
           </div>
@@ -154,14 +220,19 @@ const typeLabel: Record<string, string> = {
           class="comp-chip flex items-center gap-1 rounded-lg border border-orange-200 bg-white px-1 py-0.5 pr-1.5 shadow-sm"
           :class="load.isNew ? 'comp-chip--new' : ''"
           :style="load.isNew ? { animationDelay: `${li * 70}ms` } : undefined"
+          :title="
+            load.demand?.P_demand != null
+              ? `demande ${fmtW(load.demand.P_demand)}`
+              : load.type
+          "
         >
           <ComponentGlyph :type="load.type" :size="26" :title="load.type" />
           <div class="min-w-0 leading-tight">
             <div class="truncate font-mono text-[10px] font-semibold text-slate-800">
               {{ load.label || load.id }}
             </div>
-            <div class="text-[9px] text-slate-500">
-              {{ typeLabel[load.type] || load.type }}
+            <div class="text-[9px] text-orange-700">
+              {{ demandLabel(load) }}
             </div>
           </div>
         </div>

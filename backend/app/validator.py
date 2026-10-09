@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 
+from app.balance import recompute_balance
 from app.models import NetworkModel, ValidationIssue, ValidationReport
 
 
@@ -10,6 +11,8 @@ def validate_network(network: NetworkModel) -> ValidationReport:
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
     cycle_as_error = os.getenv("CYCLE_AS_ERROR", "true").lower() in ("1", "true", "yes")
+    # garantir bilan à jour avant contrôles énergétiques
+    network = recompute_balance(network.model_copy(deep=True))
 
     zone_ids = [z.id for z in network.zones]
     seen_zones: set[str] = set()
@@ -72,6 +75,7 @@ def validate_network(network: NetworkModel) -> ValidationReport:
                         )
                     )
                 component_ids.add(c.id)
+                _check_production(c, z.id, ps.id, errors, warnings)
         for c in z.loads + z.components:
             if c.id in component_ids:
                 errors.append(
@@ -82,6 +86,14 @@ def validate_network(network: NetworkModel) -> ValidationReport:
                     )
                 )
             component_ids.add(c.id)
+            if c.demand.P_demand is not None and c.demand.P_demand < 0:
+                errors.append(
+                    ValidationIssue(
+                        code="negative_demand",
+                        message=f"Demande négative sur {c.id}: {c.demand.P_demand} W",
+                        path=f"zones.{z.id}.loads.{c.id}.demand",
+                    )
+                )
 
     line_ids: set[str] = set()
     pair_seen: set[tuple[str, str]] = set()
@@ -129,6 +141,67 @@ def validate_network(network: NetworkModel) -> ValidationReport:
         if ln.from_zone in seen_zones and ln.to_zone in seen_zones:
             graph[ln.from_zone].append(ln.to_zone)
 
+        tmax = ln.transport.P_max
+        tflow = ln.transport.P_flow
+        if tmax is not None and tmax < 0:
+            errors.append(
+                ValidationIssue(
+                    code="negative_line_limit",
+                    message=f"Limite de transport négative sur {ln.id}",
+                    path=f"lines.{ln.id}.transport.P_max",
+                )
+            )
+        if tmax is not None and tflow is not None and abs(tflow) > tmax + 1e-6:
+            errors.append(
+                ValidationIssue(
+                    code="line_overload",
+                    message=(
+                        f"Surcharge ligne {ln.id}: flux {tflow:.0f} W > limite {tmax:.0f} W"
+                    ),
+                    path=f"lines.{ln.id}.transport",
+                )
+            )
+        elif tmax is None and tflow is not None and abs(tflow) > 0:
+            warnings.append(
+                ValidationIssue(
+                    code="line_no_limit",
+                    message=f"Ligne {ln.id} sans limite P_max (flux {tflow:.0f} W)",
+                    path=f"lines.{ln.id}.transport",
+                )
+            )
+
+    for z in network.zones:
+        bal = z.balance
+        if bal.P_surplus is not None and bal.P_surplus < -1e-6:
+            net_import = (bal.P_in or 0.0) - (bal.P_out or 0.0)
+            covered = (bal.P_surplus or 0.0) + net_import
+            if covered < -1e-6:
+                warnings.append(
+                    ValidationIssue(
+                        code="zone_deficit",
+                        message=(
+                            f"Déficit zone {z.id}: prod {bal.P_production or 0:.0f} W, "
+                            f"demande {bal.P_demand or 0:.0f} W, "
+                            f"P_in {bal.P_in or 0:.0f} / P_out {bal.P_out or 0:.0f} W"
+                        ),
+                        path=f"zones.{z.id}.balance",
+                    )
+                )
+        if bal.P_surplus is not None and bal.P_surplus > 1e-6:
+            if (bal.P_out or 0.0) + 1e-6 < bal.P_surplus and not any(
+                ln.from_zone == z.id for ln in network.lines
+            ):
+                warnings.append(
+                    ValidationIssue(
+                        code="zone_surplus_trapped",
+                        message=(
+                            f"Surplus non exportable zone {z.id}: "
+                            f"{bal.P_surplus:.0f} W (aucune ligne sortante)"
+                        ),
+                        path=f"zones.{z.id}.balance",
+                    )
+                )
+
     cycles = _find_cycles(graph, list(seen_zones))
     for cycle in cycles:
         issue = ValidationIssue(
@@ -156,6 +229,52 @@ def validate_network(network: NetworkModel) -> ValidationReport:
             )
 
     return ValidationReport(ok=len(errors) == 0, errors=errors, warnings=warnings)
+
+
+def _check_production(c, zone_id: str, ps_id: str, errors: list, warnings: list) -> None:
+    prod = c.production
+    path = f"zones.{zone_id}.power_stations.{ps_id}.{c.id}.production"
+    if prod.P_min is not None and prod.P_max is not None and prod.P_min > prod.P_max:
+        errors.append(
+            ValidationIssue(
+                code="invalid_production_range",
+                message=f"P_min > P_max sur {c.id} ({prod.P_min} > {prod.P_max})",
+                path=path,
+            )
+        )
+    if prod.P_eff is not None:
+        if prod.P_min is not None and prod.P_eff + 1e-9 < prod.P_min:
+            errors.append(
+                ValidationIssue(
+                    code="production_below_min",
+                    message=f"P_eff {prod.P_eff} W < P_min {prod.P_min} W ({c.id})",
+                    path=path,
+                )
+            )
+        if prod.P_max is not None and prod.P_eff > prod.P_max + 1e-9:
+            errors.append(
+                ValidationIssue(
+                    code="production_above_max",
+                    message=f"P_eff {prod.P_eff} W > P_max {prod.P_max} W ({c.id})",
+                    path=path,
+                )
+            )
+        if prod.P_eff < 0:
+            errors.append(
+                ValidationIssue(
+                    code="negative_production",
+                    message=f"P_eff négatif sur {c.id}",
+                    path=path,
+                )
+            )
+    elif prod.P_max is not None or prod.P_min is not None:
+        warnings.append(
+            ValidationIssue(
+                code="missing_p_eff",
+                message=f"Générateur {c.id} sans P_eff (min/max définis)",
+                path=path,
+            )
+        )
 
 
 def _find_cycles(graph: dict[str, list[str]], nodes: list[str]) -> list[list[str]]:

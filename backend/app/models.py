@@ -17,7 +17,6 @@ class ComponentType(str, Enum):
     bus = "bus"
 
 
-# Synonyms for leaf components (NOT power_station — that is a container)
 COMPONENT_TYPE_ALIASES: dict[str, ComponentType] = {
     "centrale": ComponentType.generator,
     "gen": ComponentType.generator,
@@ -55,7 +54,6 @@ def normalize_component_type(value: Any) -> ComponentType:
     if isinstance(value, ComponentType):
         return value
     raw = str(value or "load").strip().lower().replace("-", "_").replace(" ", "_")
-    # power_station is a container, not a component type
     if raw in ("power_station", "powerstation", "station", "ps"):
         return ComponentType.generator
     if raw in ComponentType.__members__:
@@ -78,10 +76,44 @@ class LineKind(str, Enum):
 
 
 class ElectricalState(BaseModel):
+    """Grandeurs électriques générales (U, I, f) + P générique optionnelle."""
+
     P: Optional[float] = None
     U: Optional[float] = None
     I: Optional[float] = None
     f: Optional[float] = None
+
+
+class ProductionRating(BaseModel):
+    """Puissance d'un générateur (W)."""
+
+    P_min: Optional[float] = None
+    P_max: Optional[float] = None
+    P_eff: Optional[float] = None  # production effective
+
+
+class DemandRating(BaseModel):
+    """Demande d'une charge (W)."""
+
+    P_demand: Optional[float] = None
+
+
+class LineTransport(BaseModel):
+    """Limites et flux sur une ligne (W)."""
+
+    P_max: Optional[float] = None  # limite de transport
+    P_flow: Optional[float] = None  # flux effectif (from → to), estimé ou fixé
+
+
+class ZoneBalance(BaseModel):
+    """Bilan énergétique d'une zone (W) — recalculé par le moteur de bilan."""
+
+    P_production: Optional[float] = None  # somme P_eff générateurs
+    P_demand: Optional[float] = None  # somme P_demand charges
+    P_surplus: Optional[float] = None  # production - demande (négatif = déficit)
+    P_in: Optional[float] = None  # énergie entrante (lignes)
+    P_out: Optional[float] = None  # énergie sortante / export
+    P_exportable: Optional[float] = None  # surplus exportable après saturation lignes
 
 
 class Component(BaseModel):
@@ -89,6 +121,8 @@ class Component(BaseModel):
     type: ComponentType
     label: str = ""
     electrical: ElectricalState = Field(default_factory=ElectricalState)
+    production: ProductionRating = Field(default_factory=ProductionRating)
+    demand: DemandRating = Field(default_factory=DemandRating)
 
     @field_validator("type", mode="before")
     @classmethod
@@ -97,8 +131,6 @@ class Component(BaseModel):
 
 
 class PowerStation(BaseModel):
-    """Centrale dans une zone — contient des générateurs (et éventuellement source/onduleur/batterie)."""
-
     id: str
     label: str = "Power Station"
     generators: list[Component] = Field(default_factory=list)
@@ -106,20 +138,13 @@ class PowerStation(BaseModel):
 
 
 class Zone(BaseModel):
-    """
-    Hiérarchie visuelle :
-      Zone
-        ├── power_stations[]  → chacun [generators]
-        └── loads[]           → charges / switch / meter…
-    """
-
     id: str
     label: str = ""
     power_stations: list[PowerStation] = Field(default_factory=list)
     loads: list[Component] = Field(default_factory=list)
-    # legacy flat list — migrated automatically into power_stations / loads
     components: list[Component] = Field(default_factory=list)
     electrical: ElectricalState = Field(default_factory=ElectricalState)
+    balance: ZoneBalance = Field(default_factory=ZoneBalance)
     parent_id: Optional[str] = None
 
     @model_validator(mode="after")
@@ -130,7 +155,6 @@ class Zone(BaseModel):
         other = [c for c in self.components if c.type not in _GENERATION_TYPES]
         if gens:
             if self.power_stations:
-                # append gens into first station
                 self.power_stations[0].generators.extend(gens)
             else:
                 self.power_stations.append(
@@ -160,6 +184,7 @@ class Line(BaseModel):
     from_zone: str
     to_zone: str
     kind: LineKind = LineKind.feeds
+    transport: LineTransport = Field(default_factory=LineTransport)
     attrs: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -207,10 +232,14 @@ OperationType = Literal[
     "remove_generator",
     "add_load",
     "remove_load",
-    "add_component",  # legacy → routed
+    "add_component",
     "update_component",
     "remove_component",
     "update_electrical",
+    "update_production",
+    "update_demand",
+    "update_line_transport",
+    "recompute_balance",
 ]
 
 

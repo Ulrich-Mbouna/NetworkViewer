@@ -231,6 +231,119 @@ def _for_issue(network: NetworkModel, issue: ValidationIssue) -> Optional[Sugges
             ],
         )
 
+    if code == "production_above_max":
+        gid = _component_id_from_prod_path(path)
+        zid = _zone_id_from_path(path)
+        if not gid or not zid:
+            return None
+        gen = _find_gen(network, zid, gid)
+        if not gen or gen.production.P_max is None:
+            return None
+        return Suggestion(
+            id=f"sug-peff-max-{gid}",
+            issue_code=code,
+            severity="error",
+            title=f"Plafonner P_eff de {gid}",
+            description=f"Mettre P_eff = P_max ({gen.production.P_max} W).",
+            operations=[
+                MutationOp(
+                    op="update_production",
+                    payload={"zone_id": zid, "id": gid, "P_eff": gen.production.P_max},
+                )
+            ],
+        )
+
+    if code == "production_below_min":
+        gid = _component_id_from_prod_path(path)
+        zid = _zone_id_from_path(path)
+        if not gid or not zid:
+            return None
+        gen = _find_gen(network, zid, gid)
+        if not gen or gen.production.P_min is None:
+            return None
+        return Suggestion(
+            id=f"sug-peff-min-{gid}",
+            issue_code=code,
+            severity="error",
+            title=f"Relever P_eff de {gid}",
+            description=f"Mettre P_eff = P_min ({gen.production.P_min} W).",
+            operations=[
+                MutationOp(
+                    op="update_production",
+                    payload={"zone_id": zid, "id": gid, "P_eff": gen.production.P_min},
+                )
+            ],
+        )
+
+    if code == "line_overload":
+        lid = _line_id_from_path(path)
+        if not lid:
+            return None
+        ln = next((x for x in network.lines if x.id == lid), None)
+        if not ln or ln.transport.P_flow is None:
+            return None
+        return Suggestion(
+            id=f"sug-overload-{lid}",
+            issue_code=code,
+            severity="error",
+            title=f"Augmenter la limite de {lid}",
+            description=f"Porter P_max à au moins {abs(ln.transport.P_flow):.0f} W.",
+            operations=[
+                MutationOp(
+                    op="update_line_transport",
+                    payload={"id": lid, "P_max": abs(ln.transport.P_flow)},
+                )
+            ],
+        )
+
+    if code == "missing_p_eff":
+        gid = _component_id_from_prod_path(path)
+        zid = _zone_id_from_path(path)
+        if not gid or not zid:
+            return None
+        gen = _find_gen(network, zid, gid)
+        if not gen:
+            return None
+        mid = gen.production.P_max
+        if mid is None:
+            mid = gen.production.P_min
+        if mid is None:
+            return None
+        return Suggestion(
+            id=f"sug-missing-peff-{gid}",
+            issue_code=code,
+            severity="warning",
+            title=f"Définir P_eff pour {gid}",
+            description=f"Initialiser P_eff à {mid} W.",
+            operations=[
+                MutationOp(
+                    op="update_production",
+                    payload={"zone_id": zid, "id": gid, "P_eff": mid},
+                )
+            ],
+        )
+
+    return None
+
+
+def _component_id_from_prod_path(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    # zones.{zid}.power_stations.{ps}.{gid}.production
+    parts = path.split(".")
+    if len(parts) >= 5 and parts[0] == "zones":
+        return parts[4]
+    return None
+
+
+def _find_gen(network: NetworkModel, zid: str, gid: str):
+    for z in network.zones:
+        if z.id != zid:
+            continue
+        for ps in z.power_stations:
+            for g in ps.generators:
+                if g.id == gid:
+                    return g
     return None
 
 

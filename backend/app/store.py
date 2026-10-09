@@ -4,14 +4,18 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from app.balance import recompute_balance
 from app.models import (
     Component,
     ComponentType,
+    DemandRating,
     ElectricalState,
     Line,
+    LineTransport,
     MutationOp,
     NetworkModel,
     PowerStation,
+    ProductionRating,
     Zone,
     normalize_component_type,
 )
@@ -31,7 +35,8 @@ class NetworkStore:
         return self._network.model_copy(deep=True)
 
     def set(self, network: NetworkModel) -> NetworkModel:
-        self._network = network.model_copy(deep=True)
+        net = network.model_copy(deep=True)
+        self._network = recompute_balance(net)
         return self.get()
 
     def load_fixture(self, path: Path) -> NetworkModel:
@@ -108,7 +113,7 @@ class NetworkStore:
             net = _apply_one(net, op)
         if ops:
             net.meta.version = int(net.meta.version or 0) + 1
-        return self.set(net)
+        return self.set(net)  # set() recalcule le bilan
 
 
 def _merge_electrical(a: ElectricalState, b: ElectricalState) -> ElectricalState:
@@ -230,6 +235,19 @@ def normalize_payload(op: str, payload: dict[str, Any]) -> dict[str, Any]:
         if zid:
             p["zone_id"] = zid
 
+    if op in ("update_production", "update_demand"):
+        eid = _first_str(p, "id", "generator_id", "load_id", "component_id")
+        if eid:
+            p["id"] = eid
+        zid = _first_str(p, "zone_id", "zoneId", "zone")
+        if zid:
+            p["zone_id"] = zid
+
+    if op == "update_line_transport":
+        lid = _first_str(p, "id", "line_id")
+        if lid:
+            p["id"] = lid
+
     return p
 
 
@@ -239,6 +257,74 @@ def _ensure_default_ps(zone: Zone) -> PowerStation:
     ps = PowerStation(id=f"ps_{zone.id}", label=f"Power Station {zone.id}", generators=[])
     zone.power_stations.append(ps)
     return ps
+
+
+def _opt_float(p: dict[str, Any], *keys: str) -> Optional[float]:
+    for k in keys:
+        if k in p and p[k] is not None and p[k] != "":
+            return float(p[k])
+    return None
+
+
+def _production_from_payload(p: dict[str, Any], base: ProductionRating | None = None) -> ProductionRating:
+    out = (base or ProductionRating()).model_copy(deep=True)
+    prod = p.get("production")
+    if isinstance(prod, dict):
+        if "P_min" in prod:
+            out.P_min = float(prod["P_min"]) if prod["P_min"] is not None else None
+        if "P_max" in prod:
+            out.P_max = float(prod["P_max"]) if prod["P_max"] is not None else None
+        if "P_eff" in prod:
+            out.P_eff = float(prod["P_eff"]) if prod["P_eff"] is not None else None
+    v = _opt_float(p, "P_min", "p_min")
+    if v is not None:
+        out.P_min = v
+    v = _opt_float(p, "P_max", "p_max")
+    if v is not None:
+        out.P_max = v
+    v = _opt_float(p, "P_eff", "p_eff", "P")
+    if v is not None:
+        out.P_eff = v
+    return out
+
+
+def _demand_from_payload(p: dict[str, Any], base: DemandRating | None = None) -> DemandRating:
+    out = (base or DemandRating()).model_copy(deep=True)
+    dem = p.get("demand")
+    if isinstance(dem, dict) and "P_demand" in dem:
+        out.P_demand = float(dem["P_demand"]) if dem["P_demand"] is not None else None
+    v = _opt_float(p, "P_demand", "p_demand", "demande", "P")
+    if v is not None:
+        out.P_demand = v
+    return out
+
+
+def _transport_from_payload(p: dict[str, Any], base: LineTransport | None = None) -> LineTransport:
+    out = (base or LineTransport()).model_copy(deep=True)
+    tr = p.get("transport")
+    if isinstance(tr, dict):
+        if "P_max" in tr:
+            out.P_max = float(tr["P_max"]) if tr["P_max"] is not None else None
+        if "P_flow" in tr:
+            out.P_flow = float(tr["P_flow"]) if tr["P_flow"] is not None else None
+    v = _opt_float(p, "P_max", "p_max", "capacity", "limite")
+    if v is not None:
+        out.P_max = v
+    v = _opt_float(p, "P_flow", "p_flow", "flow")
+    if v is not None:
+        out.P_flow = v
+    return out
+
+
+def _find_component(zone: Zone, cid: str) -> Optional[Component]:
+    for c in zone.loads:
+        if c.id == cid:
+            return c
+    for ps in zone.power_stations:
+        for g in ps.generators:
+            if g.id == cid:
+                return g
+    return None
 
 
 def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
@@ -280,10 +366,12 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
         lid = _require(p, op, "id", "line_id")
         frm = _require(p, op, "from_zone", "from")
         to = _require(p, op, "to_zone", "to")
+        transport = _transport_from_payload(p)
         if any(ln.id == lid for ln in net.lines):
             for ln in net.lines:
                 if ln.id == lid:
                     ln.from_zone, ln.to_zone = frm, to
+                    ln.transport = _transport_from_payload(p, ln.transport)
             return net
         net.lines.append(
             Line(
@@ -291,6 +379,7 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
                 from_zone=frm,
                 to_zone=to,
                 kind=p.get("kind", "feeds"),
+                transport=transport,
                 attrs=p.get("attrs", {}),
             )
         )
@@ -306,6 +395,8 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
                     ln.to_zone = p["to_zone"]
                 if "kind" in p:
                     ln.kind = p["kind"]
+                if any(k in p for k in ("transport", "P_max", "P_flow", "p_max", "p_flow")):
+                    ln.transport = _transport_from_payload(p, ln.transport)
         return net
 
     if op == "remove_line":
@@ -348,7 +439,12 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
         if any(g.id == gid for g in ps.generators):
             return net
         ps.generators.append(
-            Component(id=gid, type=ctype, label=p.get("label", gid))
+            Component(
+                id=gid,
+                type=ctype,
+                label=p.get("label", gid),
+                production=_production_from_payload(p),
+            )
         )
         return net
 
@@ -371,7 +467,14 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
         ctype = normalize_component_type(p.get("type", "load"))
         if any(c.id == lid for c in zone.loads):
             return net
-        zone.loads.append(Component(id=lid, type=ctype, label=p.get("label", lid)))
+        zone.loads.append(
+            Component(
+                id=lid,
+                type=ctype,
+                label=p.get("label", lid),
+                demand=_demand_from_payload(p),
+            )
+        )
         return net
 
     if op == "remove_load":
@@ -395,6 +498,21 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
         }
         if p.get("power_station_id"):
             routed["power_station_id"] = p["power_station_id"]
+        for key in (
+            "production",
+            "demand",
+            "P_min",
+            "P_max",
+            "P_eff",
+            "P_demand",
+            "p_min",
+            "p_max",
+            "p_eff",
+            "p_demand",
+            "P",
+        ):
+            if key in p:
+                routed[key] = p[key]
         if ctype in (
             ComponentType.generator,
             ComponentType.source,
@@ -432,6 +550,13 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
                         c.electrical = _merge_electrical(
                             c.electrical, ElectricalState.model_validate(p["electrical"])
                         )
+                    if any(
+                        k in p
+                        for k in ("production", "P_min", "P_max", "P_eff", "p_min", "p_max", "p_eff")
+                    ):
+                        c.production = _production_from_payload(p, c.production)
+                    if any(k in p for k in ("demand", "P_demand", "p_demand", "demande")):
+                        c.demand = _demand_from_payload(p, c.demand)
         return net
 
     if op == "update_electrical":
@@ -444,6 +569,41 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
                     z.electrical, ElectricalState.model_validate(p["electrical"])
                 )
         return net
+
+    if op == "update_production":
+        zid = _require(p, op, "zone_id", "zone")
+        gid = _require(p, op, "id", "generator_id", "component_id")
+        zone = _find_zone(net, zid)
+        if not zone:
+            raise MutationError(f"Zone introuvable: {zid}")
+        comp = _find_component(zone, gid)
+        if not comp:
+            raise MutationError(f"Générateur introuvable: {gid}")
+        comp.production = _production_from_payload(p, comp.production)
+        return net
+
+    if op == "update_demand":
+        zid = _require(p, op, "zone_id", "zone")
+        lid = _require(p, op, "id", "load_id", "component_id")
+        zone = _find_zone(net, zid)
+        if not zone:
+            raise MutationError(f"Zone introuvable: {zid}")
+        comp = _find_component(zone, lid)
+        if not comp:
+            raise MutationError(f"Charge introuvable: {lid}")
+        comp.demand = _demand_from_payload(p, comp.demand)
+        return net
+
+    if op == "update_line_transport":
+        lid = _require(p, op, "id", "line_id")
+        for ln in net.lines:
+            if ln.id == lid:
+                ln.transport = _transport_from_payload(p, ln.transport)
+                return net
+        raise MutationError(f"Ligne introuvable: {lid}")
+
+    if op == "recompute_balance":
+        return recompute_balance(net)
 
     return net
 

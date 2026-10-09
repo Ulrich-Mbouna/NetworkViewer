@@ -102,26 +102,51 @@ function buildNodes(network: NetworkModel, newIds: Set<string>): Node[] {
         zoneId: z.id,
         powerStations,
         loads,
+        balance: z.balance,
       },
       draggable: true,
     }
   })
 }
 
+function fmtEdgeW(v?: number | null): string {
+  if (v == null || Number.isNaN(v)) return '—'
+  if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}k`
+  return `${Math.round(v)}`
+}
+
 function buildEdges(network: NetworkModel): Edge[] {
-  return network.lines.map((ln) => ({
-    id: ln.id,
-    source: ln.from_zone,
-    target: ln.to_zone,
-    label: ln.id,
-    type: 'smoothstep',
-    animated: ln.kind === 'feeds',
-    markerEnd: MarkerType.ArrowClosed,
-    style: { stroke: '#2563eb', strokeWidth: 2.5 },
-    labelStyle: { fontSize: 11, fill: '#334155', fontWeight: 600 },
-    labelBgStyle: { fill: '#fff', fillOpacity: 0.95 },
-    labelBgPadding: [4, 6] as [number, number],
-  }))
+  return network.lines.map((ln) => {
+    const t = ln.transport
+    const flow = t?.P_flow
+    const max = t?.P_max
+    const overloaded =
+      max != null && flow != null && Math.abs(flow) > max + 1e-6
+    const labelParts = [ln.id]
+    if (flow != null || max != null) {
+      labelParts.push(`${fmtEdgeW(flow)}/${fmtEdgeW(max)} W`)
+    }
+    return {
+      id: ln.id,
+      source: ln.from_zone,
+      target: ln.to_zone,
+      label: labelParts.join(' · '),
+      type: 'smoothstep',
+      animated: ln.kind === 'feeds',
+      markerEnd: MarkerType.ArrowClosed,
+      style: {
+        stroke: overloaded ? '#dc2626' : '#2563eb',
+        strokeWidth: overloaded ? 3 : 2.5,
+      },
+      labelStyle: {
+        fontSize: 10,
+        fill: overloaded ? '#b91c1c' : '#334155',
+        fontWeight: 600,
+      },
+      labelBgStyle: { fill: '#fff', fillOpacity: 0.95 },
+      labelBgPadding: [4, 6] as [number, number],
+    }
+  })
 }
 
 async function syncGraph(network: NetworkModel | null) {
@@ -171,11 +196,33 @@ watch(
     for (const z of props.network.zones) {
       parts.push(z.id)
       for (const ps of z.power_stations ?? []) {
-        parts.push(`ps:${ps.id}:${ps.generators.map((g) => g.id).join('+')}`)
+        parts.push(
+          `ps:${ps.id}:${ps.generators
+            .map(
+              (g) =>
+                `${g.id}:${g.production?.P_eff ?? ''}:${g.production?.P_min ?? ''}:${g.production?.P_max ?? ''}`,
+            )
+            .join('+')}`,
+        )
       }
-      parts.push(`L:${(z.loads ?? []).map((l) => l.id).join('+')}`)
+      parts.push(
+        `L:${(z.loads ?? []).map((l) => `${l.id}:${l.demand?.P_demand ?? ''}`).join('+')}`,
+      )
+      const b = z.balance
+      if (b) {
+        parts.push(
+          `B:${b.P_production}:${b.P_demand}:${b.P_surplus}:${b.P_in}:${b.P_out}`,
+        )
+      }
     }
-    parts.push(props.network.lines.map((l) => `${l.id}:${l.from_zone}>${l.to_zone}`).join(','))
+    parts.push(
+      props.network.lines
+        .map(
+          (l) =>
+            `${l.id}:${l.from_zone}>${l.to_zone}:${l.transport?.P_max ?? ''}:${l.transport?.P_flow ?? ''}`,
+        )
+        .join(','),
+    )
     return parts.join('|')
   },
   () => {

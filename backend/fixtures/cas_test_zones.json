@@ -9,25 +9,77 @@
           "id": "ps_zone1",
           "label": "Power Station 1",
           "generators": [
-            { "id": "gen1", "type": "generator", "label": "Générateur 1" }
+            {
+              "id": "gen1",
+              "type": "generator",
+              "label": "Générateur 1",
+              "production": { "P_min": 500, "P_max": 5000, "P_eff": 3200 }
+            }
           ]
         }
       ],
       "loads": [
-        { "id": "load1", "type": "load", "label": "Charge 1" }
+        {
+          "id": "load1",
+          "type": "load",
+          "label": "Charge 1",
+          "demand": { "P_demand": 1800 }
+        }
       ]
     },
-    { "id": "zone2", "label": "Zone 2", "power_stations": [], "loads": [] },
+    {
+      "id": "zone2",
+      "label": "Zone 2",
+      "power_stations": [],
+      "loads": [
+        {
+          "id": "load2",
+          "type": "load",
+          "label": "Charge 2",
+          "demand": { "P_demand": 900 }
+        }
+      ]
+    },
     { "id": "zone3", "label": "Zone 3", "power_stations": [], "loads": [] },
     { "id": "zone4", "label": "Zone 4", "power_stations": [], "loads": [] },
     { "id": "zone5", "label": "Zone 5", "power_stations": [], "loads": [] }
   ],
   "lines": [
-    { "id": "line1", "from_zone": "zone1", "to_zone": "zone2", "kind": "feeds" },
-    { "id": "line2", "from_zone": "zone1", "to_zone": "zone3", "kind": "feeds" },
-    { "id": "line3", "from_zone": "zone3", "to_zone": "zone2", "kind": "feeds" },
-    { "id": "line4", "from_zone": "zone2", "to_zone": "zone4", "kind": "feeds" },
-    { "id": "line5", "from_zone": "zone2", "to_zone": "zone5", "kind": "feeds" }
+    {
+      "id": "line1",
+      "from_zone": "zone1",
+      "to_zone": "zone2",
+      "kind": "feeds",
+      "transport": { "P_max": 1000 }
+    },
+    {
+      "id": "line2",
+      "from_zone": "zone1",
+      "to_zone": "zone3",
+      "kind": "feeds",
+      "transport": { "P_max": 800 }
+    },
+    {
+      "id": "line3",
+      "from_zone": "zone3",
+      "to_zone": "zone2",
+      "kind": "feeds",
+      "transport": { "P_max": 500 }
+    },
+    {
+      "id": "line4",
+      "from_zone": "zone2",
+      "to_zone": "zone4",
+      "kind": "feeds",
+      "transport": { "P_max": 600 }
+    },
+    {
+      "id": "line5",
+      "from_zone": "zone2",
+      "to_zone": "zone5",
+      "kind": "feeds",
+      "transport": { "P_max": 600 }
+    }
   ],
   "actors": {
     "groupe_electrogene": null,

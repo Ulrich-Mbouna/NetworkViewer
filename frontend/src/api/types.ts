@@ -15,11 +15,37 @@ export interface ElectricalState {
   f?: number | null
 }
 
+export interface ProductionRating {
+  P_min?: number | null
+  P_max?: number | null
+  P_eff?: number | null
+}
+
+export interface DemandRating {
+  P_demand?: number | null
+}
+
+export interface LineTransport {
+  P_max?: number | null
+  P_flow?: number | null
+}
+
+export interface ZoneBalance {
+  P_production?: number | null
+  P_demand?: number | null
+  P_surplus?: number | null
+  P_in?: number | null
+  P_out?: number | null
+  P_exportable?: number | null
+}
+
 export interface NetworkComponent {
   id: string
   type: ComponentType
   label: string
   electrical: ElectricalState
+  production?: ProductionRating
+  demand?: DemandRating
   isNew?: boolean
 }
 
@@ -41,6 +67,7 @@ export interface Zone {
   loads: NetworkComponent[]
   components?: NetworkComponent[]
   electrical: ElectricalState
+  balance?: ZoneBalance
   parent_id?: string | null
 }
 
@@ -49,6 +76,7 @@ export interface Line {
   from_zone: string
   to_zone: string
   kind: 'feeds' | 'connects'
+  transport?: LineTransport
   attrs: Record<string, unknown>
 }
 
