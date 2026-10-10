@@ -11,7 +11,7 @@ from app.models import (
     DemandRating,
     ElectricalState,
     Line,
-    LineCost,
+    LineLoss,
     LineTransport,
     MutationOp,
     NetworkModel,
@@ -244,7 +244,7 @@ def normalize_payload(op: str, payload: dict[str, Any]) -> dict[str, Any]:
         if zid:
             p["zone_id"] = zid
 
-    if op in ("update_line_transport", "update_line_cost"):
+    if op in ("update_line_transport", "update_line_loss", "update_line_cost"):
         lid = _first_str(p, "id", "line_id")
         if lid:
             p["id"] = lid
@@ -317,15 +317,17 @@ def _transport_from_payload(p: dict[str, Any], base: LineTransport | None = None
     return out
 
 
-def _cost_from_payload(p: dict[str, Any], base: LineCost | None = None) -> LineCost:
-    out = (base or LineCost()).model_copy(deep=True)
-    cost = p.get("cost")
-    if isinstance(cost, dict):
+def _loss_from_payload(p: dict[str, Any], base: LineLoss | None = None) -> LineLoss:
+    out = (base or LineLoss()).model_copy(deep=True)
+    raw = p.get("loss")
+    if not isinstance(raw, dict):
+        raw = p.get("cost")  # compat ancien JSON / ops
+    if isinstance(raw, dict):
         for key in ("c0", "c1", "c2"):
-            if key in cost and cost[key] is not None:
-                setattr(out, key, float(cost[key]))
-        if cost.get("currency"):
-            out.currency = str(cost["currency"])
+            if key in raw and raw[key] is not None:
+                setattr(out, key, float(raw[key]))
+        if raw.get("P_loss") is not None:
+            out.P_loss = float(raw["P_loss"])
     v = _opt_float(p, "c0")
     if v is not None:
         out.c0 = v
@@ -335,9 +337,11 @@ def _cost_from_payload(p: dict[str, Any], base: LineCost | None = None) -> LineC
     v = _opt_float(p, "c2")
     if v is not None:
         out.c2 = v
-    if p.get("currency"):
-        out.currency = str(p["currency"])
     return out
+
+
+def _payload_has_loss(p: dict[str, Any]) -> bool:
+    return any(k in p for k in ("loss", "cost", "c0", "c1", "c2"))
 
 
 def _find_component(zone: Zone, cid: str) -> Optional[Component]:
@@ -391,14 +395,14 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
         frm = _require(p, op, "from_zone", "from")
         to = _require(p, op, "to_zone", "to")
         transport = _transport_from_payload(p)
-        cost = _cost_from_payload(p)
+        loss = _loss_from_payload(p)
         if any(ln.id == lid for ln in net.lines):
             for ln in net.lines:
                 if ln.id == lid:
                     ln.from_zone, ln.to_zone = frm, to
                     ln.transport = _transport_from_payload(p, ln.transport)
-                    if any(k in p for k in ("cost", "c0", "c1", "c2", "currency")):
-                        ln.cost = _cost_from_payload(p, ln.cost)
+                    if _payload_has_loss(p):
+                        ln.loss = _loss_from_payload(p, ln.loss)
             return net
         net.lines.append(
             Line(
@@ -407,7 +411,7 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
                 to_zone=to,
                 kind=p.get("kind", "feeds"),
                 transport=transport,
-                cost=cost,
+                loss=loss,
                 attrs=p.get("attrs", {}),
             )
         )
@@ -425,8 +429,8 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
                     ln.kind = p["kind"]
                 if any(k in p for k in ("transport", "P_max", "P_flow", "p_max", "p_flow")):
                     ln.transport = _transport_from_payload(p, ln.transport)
-                if any(k in p for k in ("cost", "c0", "c1", "c2", "currency")):
-                    ln.cost = _cost_from_payload(p, ln.cost)
+                if _payload_has_loss(p):
+                    ln.loss = _loss_from_payload(p, ln.loss)
         return net
 
     if op == "remove_line":
@@ -629,16 +633,16 @@ def _apply_one(net: NetworkModel, mutation: MutationOp) -> NetworkModel:
         for ln in net.lines:
             if ln.id == lid:
                 ln.transport = _transport_from_payload(p, ln.transport)
-                if any(k in p for k in ("cost", "c0", "c1", "c2", "currency")):
-                    ln.cost = _cost_from_payload(p, ln.cost)
+                if _payload_has_loss(p):
+                    ln.loss = _loss_from_payload(p, ln.loss)
                 return net
         raise MutationError(f"Ligne introuvable: {lid}")
 
-    if op == "update_line_cost":
+    if op in ("update_line_loss", "update_line_cost"):
         lid = _require(p, op, "id", "line_id")
         for ln in net.lines:
             if ln.id == lid:
-                ln.cost = _cost_from_payload(p, ln.cost)
+                ln.loss = _loss_from_payload(p, ln.loss)
                 return net
         raise MutationError(f"Ligne introuvable: {lid}")
 

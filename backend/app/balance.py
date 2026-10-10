@@ -1,26 +1,49 @@
 from __future__ import annotations
 
-from app.models import Line, LineCost, NetworkModel, ZoneBalance
+from app.models import Line, LineLoss, NetworkModel, ZoneBalance
 
 
-def line_cost_value(cost: LineCost, p_flow: float | None) -> float:
-    """cost(|P|) = c0 + c1*|P| + c2*P²."""
+def line_loss_watts(loss: LineLoss, p_flow: float | None) -> float:
+    """P_loss(|P|) = c0 + c1*|P| + c2*P², borné à [0, |P|]. Nul si P=0."""
     p = abs(float(p_flow or 0.0))
-    return float(cost.c0) + float(cost.c1) * p + float(cost.c2) * (p * p)
+    if p <= 1e-12:
+        return 0.0
+    raw = float(loss.c0) + float(loss.c1) * p + float(loss.c2) * (p * p)
+    return max(0.0, min(raw, p))
+
+
+def line_received(loss: LineLoss, p_flow: float | None) -> float:
+    """Puissance arrivant à destination."""
+    p = abs(float(p_flow or 0.0))
+    return max(0.0, p - line_loss_watts(loss, p))
+
+
+def send_for_receive(loss: LineLoss, target_recv: float, max_send: float) -> float:
+    """Plus petit envoi S ∈ [0, max_send] tel que reçu(S) ≥ target_recv (approx. dichoto)."""
+    target_recv = max(0.0, float(target_recv))
+    max_send = max(0.0, float(max_send))
+    if target_recv <= 1e-12 or max_send <= 1e-12:
+        return 0.0
+    if line_received(loss, max_send) < target_recv - 1e-9:
+        return max_send
+    lo, hi = 0.0, max_send
+    for _ in range(48):
+        mid = (lo + hi) / 2.0
+        if line_received(loss, mid) < target_recv:
+            lo = mid
+        else:
+            hi = mid
+    return hi
 
 
 def recompute_balance(network: NetworkModel, estimate_flows: bool = True) -> NetworkModel:
     """
-    Recalcule production / demande locales, estime les flux (niveaux + transit),
-    puis P_in / P_out / surplus net et coûts de ligne.
+    Recalcule production / demande, estime les flux avec pertes de ligne,
+    puis P_in / P_out / surplus net.
 
-    Bilan zone :
-      disponible = P_production + P_in - P_demand
-      P_surplus  = disponible - P_out   (net après export)
-      P_exportable = max(0, disponible)
-    Une zone qui reçoit plus qu'elle ne consomme réexporte l'excédent.
+    Sur une ligne : P_flow = puissance envoyée, P_loss = pertes, reçu = P_flow - P_loss.
+    P_out source compte P_flow ; P_in destination compte le reçu.
     """
-    # 1) production / demande locales
     local: dict[str, tuple[float, float]] = {}
     for z in network.zones:
         prod = 0.0
@@ -45,22 +68,24 @@ def recompute_balance(network: NetworkModel, estimate_flows: bool = True) -> Net
             P_exportable=max(0.0, prod - dem),
         )
 
-    # 2) flux lignes (cascade : import → surplus → réexport)
     if estimate_flows:
         _estimate_line_flows(network, local)
 
-    # 3) agréger P_in / P_out et surplus net
     pin: dict[str, float] = {z.id: 0.0 for z in network.zones}
     pout: dict[str, float] = {z.id: 0.0 for z in network.zones}
+    total_loss = 0.0
     for ln in network.lines:
-        flow = ln.transport.P_flow
-        if flow is None:
-            continue
-        flow = float(flow)
+        flow = float(ln.transport.P_flow or 0.0)
+        ploss = line_loss_watts(ln.loss, flow)
+        ln.loss.P_loss = ploss
+        total_loss += ploss
+        recv = max(0.0, flow - ploss)
         if ln.from_zone in pout:
             pout[ln.from_zone] += max(0.0, flow)
         if ln.to_zone in pin:
-            pin[ln.to_zone] += max(0.0, flow)
+            pin[ln.to_zone] += recv
+
+    network.meta.total_line_loss = total_loss
 
     for z in network.zones:
         prod, dem = local[z.id]
@@ -72,16 +97,9 @@ def recompute_balance(network: NetworkModel, estimate_flows: bool = True) -> Net
             P_demand=dem,
             P_in=zin,
             P_out=zout,
-            P_surplus=disponible - zout,  # net après export
+            P_surplus=disponible - zout,
             P_exportable=max(0.0, disponible),
         )
-
-    # 4) coûts de transport
-    total = 0.0
-    for ln in network.lines:
-        ln.cost.cost = line_cost_value(ln.cost, ln.transport.P_flow)
-        total += ln.cost.cost
-    network.meta.total_line_cost = total
 
     return network
 
@@ -98,13 +116,12 @@ def _estimate_line_flows(
     network: NetworkModel, local: dict[str, tuple[float, float]]
 ) -> None:
     """
-    Cascade itérative :
-      residual[z] = prod - demand   (puis + imports − exports au fil des itérations)
-    Une zone avec residual > 0 pousse sur ses lignes sortantes (capacité restante).
-    La destination voit residual augmenter : déficit réduit, ou surplus à réexporterer.
+    Cascade : residual = prod - demand (+ reçu − envoyé).
+    L'énergie reçue à destination = flux − pertes(ligne).
     """
     for ln in network.lines:
         ln.transport.P_flow = 0.0
+        ln.loss.P_loss = 0.0
 
     residual: dict[str, float] = {
         zid: prod - dem for zid, (prod, dem) in local.items()
@@ -127,7 +144,6 @@ def _estimate_line_flows(
             if not out_lines:
                 continue
 
-            # Priorité : zones en déficit, puis celles pouvant encore réexporterer
             def sort_key(ln: Line) -> tuple:
                 dest_r = residual.get(ln.to_zone, 0.0)
                 deficit = dest_r < -1e-9
@@ -136,7 +152,11 @@ def _estimate_line_flows(
                     for x in network.lines
                     if x.from_zone == ln.to_zone
                 )
-                return (0 if deficit else 1, 0 if transit > 1e-9 else 1, -_remaining_capacity(ln))
+                return (
+                    0 if deficit else 1,
+                    0 if transit > 1e-9 else 1,
+                    -_remaining_capacity(ln),
+                )
 
             out_lines.sort(key=sort_key)
 
@@ -158,22 +178,32 @@ def _estimate_line_flows(
                 )
 
                 if dest_need > 1e-9:
-                    # couvrir le déficit + laisser transiter l'excédent si possible
-                    want = min(avail, room, dest_need + transit_room)
+                    target_recv_delta = min(dest_need + transit_room, line_received(ln.loss, avail))
                 elif transit_room > 1e-9:
-                    # zone déjà à l'équilibre / surplus : uniquement du transit
-                    want = min(avail, room, transit_room)
+                    target_recv_delta = min(transit_room, line_received(ln.loss, avail))
                 else:
-                    # pas de besoin ni de sortie : ne pas y envoyer
                     continue
 
-                add = min(want, room, avail)
+                if target_recv_delta <= 1e-9:
+                    continue
+
+                old_flow = float(ln.transport.P_flow or 0.0)
+                old_recv = line_received(ln.loss, old_flow)
+                target_total_recv = old_recv + target_recv_delta
+                max_new_flow = old_flow + min(avail, room)
+                new_flow = send_for_receive(ln.loss, target_total_recv, max_new_flow)
+                # ne pas dépasser ce qu'on peut encore envoyer
+                new_flow = min(new_flow, max_new_flow)
+                add = new_flow - old_flow
                 if add <= 1e-9:
                     continue
 
-                ln.transport.P_flow = float(ln.transport.P_flow or 0.0) + add
+                new_recv = line_received(ln.loss, new_flow)
+                recv_delta = new_recv - old_recv
+
+                ln.transport.P_flow = new_flow
                 residual[zid] -= add
-                residual[dest] = residual.get(dest, 0.0) + add
+                residual[dest] = residual.get(dest, 0.0) + recv_delta
                 progressed = True
 
         if not progressed:

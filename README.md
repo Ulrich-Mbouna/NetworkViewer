@@ -99,9 +99,9 @@ Les **charges** sont attachées directement à la zone.
 ### Énergie & bilan
 - Production générateur `P_min` / `P_max` / `P_eff`, demande charge `P_demand`
 - Limites de transport par ligne, export des surplus entre zones
-- Coût de transport par ligne : `cost(|P|) = c0 + c1·|P| + c2·P²`
+- Pertes de ligne : `P_loss(|P|) = c0 + c1·|P| + c2·P²` — reçu = envoyé − pertes
 - Bilan zone : `P_production`, `P_demand`, `P_surplus`, `P_in`, `P_out`
-- Affichage sur les nœuds zone et labels de lignes (flux / limite / coût)
+- Affichage sur les nœuds zone et labels de lignes (flux / limite / pertes)
 - Graphe en **plein écran**
 
 ### Diagnostics
@@ -178,10 +178,10 @@ Les **charges** sont attachées directement à la zone.
 | Générateur | `production.P_min` / `P_max` / `P_eff` | Plage et production effective |
 | Charge | `demand.P_demand` | Demande |
 | Ligne | `transport.P_max` / `P_flow` | Limite de transport et flux estimé |
-| Ligne | `cost.c0` / `c1` / `c2` → `cost.cost` | Coût = c0 + c1·\|P\| + c2·P² |
+| Ligne | `loss.c0` / `c1` / `c2` → `loss.P_loss` | Pertes (W) = c0 + c1·\|P\| + c2·P² |
 | Zone | `balance.P_production`, `P_demand`, `P_surplus`, `P_in`, `P_out`, `P_exportable` | Bilan recalculé serveur |
 
-Ops chat associées : `update_production`, `update_demand`, `update_line_transport`, `update_line_cost`, `recompute_balance`.
+Ops chat associées : `update_production`, `update_demand`, `update_line_transport`, `update_line_loss`, `recompute_balance`.
 
 Types de composants autorisés :  
 `source` · `generator` · `inverter` · `battery` · `load` · `meter` · `switch` · `bus`
@@ -302,5 +302,7 @@ Les opérations réellement appliquées s’affichent sous la réponse Gemma ; l
 ---
 
 ## Licence / contexte
+
+Distribué sous licence [MIT](./LICENSE).
 
 Projet de modélisation et de démonstration — assistance IA pour la conception de réseaux électriques (topologie, dépendances, export visuel).

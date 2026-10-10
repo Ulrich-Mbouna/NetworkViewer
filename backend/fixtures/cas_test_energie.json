@@ -110,7 +110,7 @@
       "to_zone": "zone_urbain",
       "kind": "feeds",
       "transport": { "P_max": 4000 },
-      "cost": { "c0": 20, "c1": 0.008, "c2": 0.0000008, "currency": "CAD" }
+      "loss": { "c0": 20, "c1": 0.02, "c2": 0.00000005 }
     },
     {
       "id": "L2",
@@ -118,7 +118,7 @@
       "to_zone": "zone_peri",
       "kind": "feeds",
       "transport": { "P_max": 1500 },
-      "cost": { "c0": 10, "c1": 0.012, "c2": 0.0000015, "currency": "CAD" }
+      "loss": { "c0": 10, "c1": 0.03, "c2": 0.00000008 }
     },
     {
       "id": "L3",
@@ -126,7 +126,7 @@
       "to_zone": "zone_urbain",
       "kind": "feeds",
       "transport": { "P_max": 1000 },
-      "cost": { "c0": 5, "c1": 0.02, "c2": 0.000002, "currency": "CAD" }
+      "loss": { "c0": 5, "c1": 0.04, "c2": 0.0000001 }
     },
     {
       "id": "L4",
@@ -134,7 +134,7 @@
       "to_zone": "zone_urbain",
       "kind": "feeds",
       "transport": { "P_max": 1200 },
-      "cost": { "c0": 8, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
+      "loss": { "c0": 8, "c1": 0.025, "c2": 0.00000006 }
     },
     {
       "id": "L5",
@@ -142,7 +142,7 @@
       "to_zone": "zone_stockage",
       "kind": "connects",
       "transport": { "P_max": 800 },
-      "cost": { "c0": 4, "c1": 0.015, "c2": 0.0000025, "currency": "CAD" }
+      "loss": { "c0": 4, "c1": 0.035, "c2": 0.0000001 }
     }
   ],
   "actors": {

@@ -67,15 +67,15 @@ const stats = computed(() => {
   }
 })
 
-const totalCost = computed(() => {
-  const t = props.network?.meta.total_line_cost
+const totalLoss = computed(() => {
+  const t = props.network?.meta.total_line_loss
   if (t != null) return t
   if (!props.network) return null
   let sum = 0
   let any = false
   for (const ln of props.network.lines) {
-    if (ln.cost?.cost != null) {
-      sum += ln.cost.cost
+    if (ln.loss?.P_loss != null) {
+      sum += ln.loss.P_loss
       any = true
     }
   }
@@ -132,24 +132,20 @@ function fmtEdgeW(v?: number | null): string {
   return `${Math.round(v)}`
 }
 
-function fmtCost(v?: number | null, currency = 'CAD'): string {
-  if (v == null || Number.isNaN(v)) return ''
-  return `${v.toFixed(1)} ${currency}`
-}
-
 function buildEdges(network: NetworkModel): Edge[] {
   return network.lines.map((ln) => {
     const t = ln.transport
     const flow = t?.P_flow
     const max = t?.P_max
+    const ploss = ln.loss?.P_loss
     const overloaded =
       max != null && flow != null && Math.abs(flow) > max + 1e-6
     const labelParts = [ln.id]
     if (flow != null || max != null) {
       labelParts.push(`${fmtEdgeW(flow)}/${fmtEdgeW(max)} W`)
     }
-    if (ln.cost?.cost != null) {
-      labelParts.push(fmtCost(ln.cost.cost, ln.cost.currency || 'CAD'))
+    if (ploss != null && ploss > 0) {
+      labelParts.push(`−${fmtEdgeW(ploss)} W`)
     }
     return {
       id: ln.id,
@@ -252,7 +248,7 @@ watch(
     if (!props.network) return 'empty'
     const parts: string[] = [
       `v${props.network.meta.version}`,
-      `tc:${props.network.meta.total_line_cost ?? ''}`,
+      `tl:${props.network.meta.total_line_loss ?? ''}`,
     ]
     for (const z of props.network.zones) {
       parts.push(z.id)
@@ -280,7 +276,7 @@ watch(
       props.network.lines
         .map(
           (l) =>
-            `${l.id}:${l.from_zone}>${l.to_zone}:${l.transport?.P_max ?? ''}:${l.transport?.P_flow ?? ''}:${l.cost?.c0 ?? ''}:${l.cost?.c1 ?? ''}:${l.cost?.c2 ?? ''}:${l.cost?.cost ?? ''}`,
+            `${l.id}:${l.from_zone}>${l.to_zone}:${l.transport?.P_max ?? ''}:${l.transport?.P_flow ?? ''}:${l.loss?.c0 ?? ''}:${l.loss?.c1 ?? ''}:${l.loss?.c2 ?? ''}:${l.loss?.P_loss ?? ''}`,
         )
         .join(','),
     )
@@ -313,11 +309,11 @@ watch(
           v{{ network.meta.version }}
         </span>
         <span
-          v-if="totalCost != null"
+          v-if="totalLoss != null"
           class="uk-label uk-label-warning text-xs"
-          title="Somme des coûts de transport"
+          title="Somme des pertes d'énergie sur les lignes"
         >
-          Coût total {{ totalCost.toFixed(1) }} CAD
+          Pertes {{ fmtEdgeW(totalLoss) }} W
         </span>
       </h3>
       <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
@@ -349,8 +345,8 @@ watch(
         Zone → Power Station → Générateur · Charges dans la zone · Lignes entre zones
       </div>
       <div>
-        <span class="font-semibold text-slate-700">Coût ligne :</span>
-        cost(|P|) = c0 + c1·|P| + c2·P² — affiché sur chaque arête
+        <span class="font-semibold text-slate-700">Pertes ligne :</span>
+        P_loss(|P|) = c0 + c1·|P| + c2·P² — reçu = envoyé − pertes
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="font-semibold text-slate-700">Légende :</span>

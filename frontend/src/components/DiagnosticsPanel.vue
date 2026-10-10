@@ -18,7 +18,7 @@ const { visible, label, steps, running, error } = useProcessing('diagnostics')
 
 <template>
   <div
-    class="uk-card uk-card-default uk-card-body rounded-xl border border-slate-200 shadow-sm"
+    class="uk-card uk-card-default uk-card-small uk-card-body rounded-xl border border-slate-200 shadow-sm"
   >
     <h3 class="uk-card-title flex items-center gap-2 text-lg font-semibold">
       <span

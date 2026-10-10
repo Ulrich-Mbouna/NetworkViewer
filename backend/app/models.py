@@ -105,18 +105,17 @@ class LineTransport(BaseModel):
     P_flow: Optional[float] = None  # flux effectif (from → to), estimé ou fixé
 
 
-class LineCost(BaseModel):
+class LineLoss(BaseModel):
     """
-    Fonction de coût de transport en fonction du flux P (W) :
-      cost(|P|) = c0 + c1 * |P| + c2 * P²
-    c0 fixe, c1 linéaire (€/W), c2 quadratique (€/W²).
+    Pertes d'énergie sur une ligne en fonction du flux envoyé P (W) :
+      P_loss(|P|) = c0 + c1 * |P| + c2 * P²   (borné à [0, |P|])
+    Énergie reçue = |P| - P_loss.
     """
 
-    c0: float = 0.0
-    c1: float = 0.0
-    c2: float = 0.0
-    currency: str = "CAD"
-    cost: Optional[float] = None  # coût calculé pour P_flow courant
+    c0: float = 0.0  # perte fixe (W) si flux > 0
+    c1: float = 0.0  # coeff. linéaire
+    c2: float = 0.0  # coeff. quadratique
+    P_loss: Optional[float] = None  # pertes calculées pour P_flow courant
 
 
 class ZoneBalance(BaseModel):
@@ -199,14 +198,31 @@ class Line(BaseModel):
     to_zone: str
     kind: LineKind = LineKind.feeds
     transport: LineTransport = Field(default_factory=LineTransport)
-    cost: LineCost = Field(default_factory=LineCost)
+    loss: LineLoss = Field(default_factory=LineLoss)
     attrs: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_cost_to_loss(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if "loss" not in data and "cost" in data:
+            raw = data["cost"]
+            if isinstance(raw, dict):
+                migrated = {k: raw[k] for k in ("c0", "c1", "c2") if k in raw}
+                if "P_loss" in raw:
+                    migrated["P_loss"] = raw["P_loss"]
+                elif "cost" in raw:
+                    migrated["P_loss"] = raw["cost"]
+                data = {**data, "loss": migrated}
+            data = {k: v for k, v in data.items() if k != "cost"}
+        return data
 
 
 class Meta(BaseModel):
     name: str = "Réseau"
     version: int = 1
-    total_line_cost: Optional[float] = None  # somme des coûts de transport
+    total_line_loss: Optional[float] = None  # somme des pertes (W)
 
 
 class Actors(BaseModel):
@@ -255,7 +271,8 @@ OperationType = Literal[
     "update_production",
     "update_demand",
     "update_line_transport",
-    "update_line_cost",
+    "update_line_loss",
+    "update_line_cost",  # alias → pertes
     "recompute_balance",
 ]
 

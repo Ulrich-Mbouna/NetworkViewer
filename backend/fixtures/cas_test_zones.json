@@ -51,7 +51,7 @@
       "to_zone": "zone2",
       "kind": "feeds",
       "transport": { "P_max": 1000 },
-      "cost": { "c0": 10, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
+      "loss": { "c0": 5, "c1": 0.02, "c2": 0.00000005 }
     },
     {
       "id": "line2",
@@ -59,7 +59,7 @@
       "to_zone": "zone3",
       "kind": "feeds",
       "transport": { "P_max": 800 },
-      "cost": { "c0": 8, "c1": 0.012, "c2": 0.0000012, "currency": "CAD" }
+      "loss": { "c0": 4, "c1": 0.025, "c2": 0.00000006 }
     },
     {
       "id": "line3",
@@ -67,7 +67,7 @@
       "to_zone": "zone2",
       "kind": "feeds",
       "transport": { "P_max": 500 },
-      "cost": { "c0": 5, "c1": 0.015, "c2": 0.000002, "currency": "CAD" }
+      "loss": { "c0": 3, "c1": 0.03, "c2": 0.00000008 }
     },
     {
       "id": "line4",
@@ -75,7 +75,7 @@
       "to_zone": "zone4",
       "kind": "feeds",
       "transport": { "P_max": 600 },
-      "cost": { "c0": 4, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
+      "loss": { "c0": 2, "c1": 0.02, "c2": 0.00000005 }
     },
     {
       "id": "line5",
@@ -83,7 +83,7 @@
       "to_zone": "zone5",
       "kind": "feeds",
       "transport": { "P_max": 600 },
-      "cost": { "c0": 4, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
+      "loss": { "c0": 2, "c1": 0.02, "c2": 0.00000005 }
     }
   ],
   "actors": {

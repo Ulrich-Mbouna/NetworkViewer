@@ -30,13 +30,12 @@ export interface LineTransport {
   P_flow?: number | null
 }
 
-/** cost(|P|) = c0 + c1*|P| + c2*P² */
-export interface LineCost {
+/** P_loss(|P|) = c0 + c1*|P| + c2*P² (W) ; reçu = |P| − P_loss */
+export interface LineLoss {
   c0?: number
   c1?: number
   c2?: number
-  currency?: string
-  cost?: number | null
+  P_loss?: number | null
 }
 
 export interface ZoneBalance {
@@ -86,12 +85,12 @@ export interface Line {
   to_zone: string
   kind: 'feeds' | 'connects'
   transport?: LineTransport
-  cost?: LineCost
+  loss?: LineLoss
   attrs: Record<string, unknown>
 }
 
 export interface NetworkModel {
-  meta: { name: string; version: number; total_line_cost?: number | null }
+  meta: { name: string; version: number; total_line_loss?: number | null }
   zones: Zone[]
   lines: Line[]
   actors: {
