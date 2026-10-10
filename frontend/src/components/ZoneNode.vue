@@ -111,8 +111,8 @@ function surplusClass(b?: ZoneBalance): string {
         <div class="text-slate-400">Demande</div>
         <div class="font-semibold text-orange-800">{{ fmtW(data.balance.P_demand) }}</div>
       </div>
-      <div>
-        <div class="text-slate-400">Surplus</div>
+      <div :title="'prod + P_in − demande − P_out'">
+        <div class="text-slate-400">Surplus net</div>
         <div class="font-semibold" :class="surplusClass(data.balance)">
           {{ fmtW(data.balance.P_surplus) }}
         </div>

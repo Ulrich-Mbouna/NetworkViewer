@@ -50,35 +50,40 @@
       "from_zone": "zone1",
       "to_zone": "zone2",
       "kind": "feeds",
-      "transport": { "P_max": 1000 }
+      "transport": { "P_max": 1000 },
+      "cost": { "c0": 10, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
     },
     {
       "id": "line2",
       "from_zone": "zone1",
       "to_zone": "zone3",
       "kind": "feeds",
-      "transport": { "P_max": 800 }
+      "transport": { "P_max": 800 },
+      "cost": { "c0": 8, "c1": 0.012, "c2": 0.0000012, "currency": "CAD" }
     },
     {
       "id": "line3",
       "from_zone": "zone3",
       "to_zone": "zone2",
       "kind": "feeds",
-      "transport": { "P_max": 500 }
+      "transport": { "P_max": 500 },
+      "cost": { "c0": 5, "c1": 0.015, "c2": 0.000002, "currency": "CAD" }
     },
     {
       "id": "line4",
       "from_zone": "zone2",
       "to_zone": "zone4",
       "kind": "feeds",
-      "transport": { "P_max": 600 }
+      "transport": { "P_max": 600 },
+      "cost": { "c0": 4, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
     },
     {
       "id": "line5",
       "from_zone": "zone2",
       "to_zone": "zone5",
       "kind": "feeds",
-      "transport": { "P_max": 600 }
+      "transport": { "P_max": 600 },
+      "cost": { "c0": 4, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
     }
   ],
   "actors": {

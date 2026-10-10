@@ -1,0 +1,154 @@
+{
+  "meta": { "name": "Cas test énergie", "version": 1 },
+  "zones": [
+    {
+      "id": "zone_prod",
+      "label": "Zone Production",
+      "power_stations": [
+        {
+          "id": "ps_centrale",
+          "label": "Centrale principale",
+          "generators": [
+            {
+              "id": "gen_hydro",
+              "type": "generator",
+              "label": "Hydro",
+              "production": { "P_min": 1000, "P_max": 8000, "P_eff": 5500 }
+            },
+            {
+              "id": "gen_solaire",
+              "type": "source",
+              "label": "PV",
+              "production": { "P_min": 0, "P_max": 2000, "P_eff": 1200 }
+            }
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "load_locale",
+          "type": "load",
+          "label": "Autoconsommation",
+          "demand": { "P_demand": 1500 }
+        }
+      ]
+    },
+    {
+      "id": "zone_urbain",
+      "label": "Zone Urbaine",
+      "power_stations": [],
+      "loads": [
+        {
+          "id": "load_quartier",
+          "type": "load",
+          "label": "Quartier",
+          "demand": { "P_demand": 3000 }
+        },
+        {
+          "id": "load_industrie",
+          "type": "load",
+          "label": "Industrie",
+          "demand": { "P_demand": 2000 }
+        },
+        {
+          "id": "meter1",
+          "type": "meter",
+          "label": "Compteur maille"
+        }
+      ]
+    },
+    {
+      "id": "zone_peri",
+      "label": "Zone Périphérie",
+      "power_stations": [
+        {
+          "id": "ps_backup",
+          "label": "Groupe secours",
+          "generators": [
+            {
+              "id": "gen_ge",
+              "type": "generator",
+              "label": "GE diesel",
+              "production": { "P_min": 200, "P_max": 2500, "P_eff": 800 }
+            }
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "load_peri",
+          "type": "load",
+          "label": "Charge péri",
+          "demand": { "P_demand": 1200 }
+        }
+      ]
+    },
+    {
+      "id": "zone_stockage",
+      "label": "Zone Stockage",
+      "power_stations": [
+        {
+          "id": "ps_batterie",
+          "label": "Parc batteries",
+          "generators": [
+            {
+              "id": "batt1",
+              "type": "battery",
+              "label": "Batterie BESS",
+              "production": { "P_min": 0, "P_max": 1500, "P_eff": 500 }
+            }
+          ]
+        }
+      ],
+      "loads": []
+    }
+  ],
+  "lines": [
+    {
+      "id": "L1",
+      "from_zone": "zone_prod",
+      "to_zone": "zone_urbain",
+      "kind": "feeds",
+      "transport": { "P_max": 4000 },
+      "cost": { "c0": 20, "c1": 0.008, "c2": 0.0000008, "currency": "CAD" }
+    },
+    {
+      "id": "L2",
+      "from_zone": "zone_prod",
+      "to_zone": "zone_peri",
+      "kind": "feeds",
+      "transport": { "P_max": 1500 },
+      "cost": { "c0": 10, "c1": 0.012, "c2": 0.0000015, "currency": "CAD" }
+    },
+    {
+      "id": "L3",
+      "from_zone": "zone_peri",
+      "to_zone": "zone_urbain",
+      "kind": "feeds",
+      "transport": { "P_max": 1000 },
+      "cost": { "c0": 5, "c1": 0.02, "c2": 0.000002, "currency": "CAD" }
+    },
+    {
+      "id": "L4",
+      "from_zone": "zone_stockage",
+      "to_zone": "zone_urbain",
+      "kind": "feeds",
+      "transport": { "P_max": 1200 },
+      "cost": { "c0": 8, "c1": 0.01, "c2": 0.000001, "currency": "CAD" }
+    },
+    {
+      "id": "L5",
+      "from_zone": "zone_prod",
+      "to_zone": "zone_stockage",
+      "kind": "connects",
+      "transport": { "P_max": 800 },
+      "cost": { "c0": 4, "c1": 0.015, "c2": 0.0000025, "currency": "CAD" }
+    }
+  ],
+  "actors": {
+    "groupe_electrogene": "gen_ge",
+    "compteur": "meter1",
+    "dashboard": null,
+    "consommateurs": ["load_quartier", "load_industrie", "load_peri"]
+  }
+}

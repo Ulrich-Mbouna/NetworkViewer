@@ -172,35 +172,36 @@ def validate_network(network: NetworkModel) -> ValidationReport:
 
     for z in network.zones:
         bal = z.balance
+        # déficit net après imports/exports
         if bal.P_surplus is not None and bal.P_surplus < -1e-6:
-            net_import = (bal.P_in or 0.0) - (bal.P_out or 0.0)
-            covered = (bal.P_surplus or 0.0) + net_import
-            if covered < -1e-6:
-                warnings.append(
-                    ValidationIssue(
-                        code="zone_deficit",
-                        message=(
-                            f"Déficit zone {z.id}: prod {bal.P_production or 0:.0f} W, "
-                            f"demande {bal.P_demand or 0:.0f} W, "
-                            f"P_in {bal.P_in or 0:.0f} / P_out {bal.P_out or 0:.0f} W"
-                        ),
-                        path=f"zones.{z.id}.balance",
-                    )
+            warnings.append(
+                ValidationIssue(
+                    code="zone_deficit",
+                    message=(
+                        f"Déficit zone {z.id}: prod {bal.P_production or 0:.0f} W + "
+                        f"P_in {bal.P_in or 0:.0f} W < demande {bal.P_demand or 0:.0f} W "
+                        f"(net {bal.P_surplus:.0f} W, P_out {bal.P_out or 0:.0f})"
+                    ),
+                    path=f"zones.{z.id}.balance",
                 )
-        if bal.P_surplus is not None and bal.P_surplus > 1e-6:
-            if (bal.P_out or 0.0) + 1e-6 < bal.P_surplus and not any(
-                ln.from_zone == z.id for ln in network.lines
-            ):
-                warnings.append(
-                    ValidationIssue(
-                        code="zone_surplus_trapped",
-                        message=(
-                            f"Surplus non exportable zone {z.id}: "
-                            f"{bal.P_surplus:.0f} W (aucune ligne sortante)"
-                        ),
-                        path=f"zones.{z.id}.balance",
-                    )
+            )
+        # exportable non évacué (pas de ligne / saturation)
+        exportable = bal.P_exportable or 0.0
+        out = bal.P_out or 0.0
+        if exportable > out + 1e-6:
+            trapped = exportable - out
+            has_out = any(ln.from_zone == z.id for ln in network.lines)
+            warnings.append(
+                ValidationIssue(
+                    code="zone_surplus_trapped",
+                    message=(
+                        f"Surplus non entièrement exporté zone {z.id}: "
+                        f"{trapped:.0f} W restants"
+                        + (" (aucune ligne sortante)" if not has_out else " (lignes saturées)")
+                    ),
+                    path=f"zones.{z.id}.balance",
                 )
+            )
 
     cycles = _find_cycles(graph, list(seen_zones))
     for cycle in cycles:

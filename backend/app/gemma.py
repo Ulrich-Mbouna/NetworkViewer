@@ -24,6 +24,7 @@ Architecture hiérarchique OBLIGATOIRE:
           └── demand: {P_demand} en Watts
   lines[] entre zones:
     transport: {P_max limite, P_flow flux from→to} en Watts
+    cost: {c0, c1, c2, currency} — coût = c0 + c1*|P| + c2*P²
   Zone.balance (recalculé serveur): P_production, P_demand, P_surplus, P_in, P_out, P_exportable
 
 Tu NE dois PAS mettre les générateurs à plat dans la zone : ils vont DANS une power_station.
@@ -34,7 +35,7 @@ Mutation format: {"op":"<op>","payload":{...}}
 Ops:
 - add_zone: {"id":"zone6","label":"Zone 6"}
 - remove_zone: {"id":"zone5"}
-- add_line: {"id":"line6","from_zone":"zone4","to_zone":"zone6","kind":"feeds","P_max":1000}
+- add_line: {"id":"line6","from_zone":"zone4","to_zone":"zone6","kind":"feeds","P_max":1000,"c0":10,"c1":0.01,"c2":0.000001}
 - remove_line: {"id":"line5"}
 - add_power_station: {"zone_id":"zone1","id":"ps1","label":"Power Station 1"}
 - remove_power_station: {"zone_id":"zone1","id":"ps1"}
@@ -45,6 +46,7 @@ Ops:
 - update_production: {"zone_id":"zone1","id":"gen1","P_min":500,"P_max":5000,"P_eff":3200}
 - update_demand: {"zone_id":"zone1","id":"load1","P_demand":1800}
 - update_line_transport: {"id":"line1","P_max":1000}
+- update_line_cost: {"id":"line1","c0":10,"c1":0.01,"c2":0.000001,"currency":"CAD"}
 - recompute_balance: {}
 
 Generator type MUST be one of: source | generator | inverter | battery

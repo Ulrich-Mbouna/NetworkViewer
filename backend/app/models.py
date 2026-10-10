@@ -105,15 +105,29 @@ class LineTransport(BaseModel):
     P_flow: Optional[float] = None  # flux effectif (from → to), estimé ou fixé
 
 
+class LineCost(BaseModel):
+    """
+    Fonction de coût de transport en fonction du flux P (W) :
+      cost(|P|) = c0 + c1 * |P| + c2 * P²
+    c0 fixe, c1 linéaire (€/W), c2 quadratique (€/W²).
+    """
+
+    c0: float = 0.0
+    c1: float = 0.0
+    c2: float = 0.0
+    currency: str = "CAD"
+    cost: Optional[float] = None  # coût calculé pour P_flow courant
+
+
 class ZoneBalance(BaseModel):
     """Bilan énergétique d'une zone (W) — recalculé par le moteur de bilan."""
 
     P_production: Optional[float] = None  # somme P_eff générateurs
     P_demand: Optional[float] = None  # somme P_demand charges
-    P_surplus: Optional[float] = None  # production - demande (négatif = déficit)
+    P_surplus: Optional[float] = None  # net: prod + P_in - demande - P_out
     P_in: Optional[float] = None  # énergie entrante (lignes)
-    P_out: Optional[float] = None  # énergie sortante / export
-    P_exportable: Optional[float] = None  # surplus exportable après saturation lignes
+    P_out: Optional[float] = None  # énergie sortante / export (y compris réexport)
+    P_exportable: Optional[float] = None  # max(0, prod + P_in - demande)
 
 
 class Component(BaseModel):
@@ -185,12 +199,14 @@ class Line(BaseModel):
     to_zone: str
     kind: LineKind = LineKind.feeds
     transport: LineTransport = Field(default_factory=LineTransport)
+    cost: LineCost = Field(default_factory=LineCost)
     attrs: dict[str, Any] = Field(default_factory=dict)
 
 
 class Meta(BaseModel):
     name: str = "Réseau"
     version: int = 1
+    total_line_cost: Optional[float] = None  # somme des coûts de transport
 
 
 class Actors(BaseModel):
@@ -239,6 +255,7 @@ OperationType = Literal[
     "update_production",
     "update_demand",
     "update_line_transport",
+    "update_line_cost",
     "recompute_balance",
 ]
 

@@ -9,7 +9,7 @@ import {
   type Node,
   type NodeTypesObject,
 } from '@vue-flow/core'
-import { computed, markRaw, nextTick, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentType, NetworkModel } from '../api/types'
 import ComponentGlyph from './ComponentGlyph.vue'
 import ZoneNode from './ZoneNode.vue'
@@ -32,6 +32,8 @@ const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 const seenIds = ref(new Set<string>())
 const flashIds = ref(new Set<string>())
+const rootEl = ref<HTMLElement | null>(null)
+const isFullscreen = ref(false)
 
 const { setNodes, setEdges, fitView } = useVueFlow(FLOW_ID)
 
@@ -63,6 +65,21 @@ const stats = computed(() => {
     gens,
     loads,
   }
+})
+
+const totalCost = computed(() => {
+  const t = props.network?.meta.total_line_cost
+  if (t != null) return t
+  if (!props.network) return null
+  let sum = 0
+  let any = false
+  for (const ln of props.network.lines) {
+    if (ln.cost?.cost != null) {
+      sum += ln.cost.cost
+      any = true
+    }
+  }
+  return any ? sum : null
 })
 
 function collectEntityIds(network: NetworkModel): Set<string> {
@@ -115,6 +132,11 @@ function fmtEdgeW(v?: number | null): string {
   return `${Math.round(v)}`
 }
 
+function fmtCost(v?: number | null, currency = 'CAD'): string {
+  if (v == null || Number.isNaN(v)) return ''
+  return `${v.toFixed(1)} ${currency}`
+}
+
 function buildEdges(network: NetworkModel): Edge[] {
   return network.lines.map((ln) => {
     const t = ln.transport
@@ -125,6 +147,9 @@ function buildEdges(network: NetworkModel): Edge[] {
     const labelParts = [ln.id]
     if (flow != null || max != null) {
       labelParts.push(`${fmtEdgeW(flow)}/${fmtEdgeW(max)} W`)
+    }
+    if (ln.cost?.cost != null) {
+      labelParts.push(fmtCost(ln.cost.cost, ln.cost.currency || 'CAD'))
     }
     return {
       id: ln.id,
@@ -189,10 +214,46 @@ async function syncGraph(network: NetworkModel | null) {
   }
 }
 
+async function toggleFullscreen() {
+  const el = rootEl.value
+  if (!el) return
+  try {
+    if (!document.fullscreenElement) {
+      await el.requestFullscreen()
+    } else {
+      await document.exitFullscreen()
+    }
+  } catch {
+    /* ignore denied */
+  }
+}
+
+function onFullscreenChange() {
+  isFullscreen.value = document.fullscreenElement === rootEl.value
+  void nextTick(async () => {
+    try {
+      await fitView({ padding: 0.1, duration: 280 })
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+})
+
 watch(
   () => {
     if (!props.network) return 'empty'
-    const parts: string[] = [`v${props.network.meta.version}`]
+    const parts: string[] = [
+      `v${props.network.meta.version}`,
+      `tc:${props.network.meta.total_line_cost ?? ''}`,
+    ]
     for (const z of props.network.zones) {
       parts.push(z.id)
       for (const ps of z.power_stations ?? []) {
@@ -219,7 +280,7 @@ watch(
       props.network.lines
         .map(
           (l) =>
-            `${l.id}:${l.from_zone}>${l.to_zone}:${l.transport?.P_max ?? ''}:${l.transport?.P_flow ?? ''}`,
+            `${l.id}:${l.from_zone}>${l.to_zone}:${l.transport?.P_max ?? ''}:${l.transport?.P_flow ?? ''}:${l.cost?.c0 ?? ''}:${l.cost?.c1 ?? ''}:${l.cost?.c2 ?? ''}:${l.cost?.cost ?? ''}`,
         )
         .join(','),
     )
@@ -234,7 +295,9 @@ watch(
 
 <template>
   <div
-    class="uk-card uk-card-default overflow-hidden rounded-xl border border-slate-200 shadow-sm"
+    ref="rootEl"
+    class="graph-shell uk-card uk-card-default overflow-hidden rounded-xl border border-slate-200 shadow-sm"
+    :class="{ 'graph-shell--fs': isFullscreen }"
   >
     <div
       class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3"
@@ -249,23 +312,45 @@ watch(
         <span v-if="network" class="uk-label uk-label-success text-xs">
           v{{ network.meta.version }}
         </span>
+        <span
+          v-if="totalCost != null"
+          class="uk-label uk-label-warning text-xs"
+          title="Somme des coûts de transport"
+        >
+          Coût total {{ totalCost.toFixed(1) }} CAD
+        </span>
       </h3>
-      <span class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+      <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
         <span>{{ stats.zones }} zones</span>
         <span class="text-emerald-700">{{ stats.stations }} PS</span>
         <span class="text-emerald-700">{{ stats.gens }} gén.</span>
         <span class="text-orange-700">{{ stats.loads }} charges</span>
         <span>{{ stats.lines }} lignes</span>
-      </span>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          :title="isFullscreen ? 'Quitter le plein écran (Échap)' : 'Plein écran'"
+          @click="toggleFullscreen"
+        >
+          <span
+            :uk-icon="isFullscreen ? 'icon: shrink; ratio: 0.85' : 'icon: expand; ratio: 0.85'"
+          ></span>
+          {{ isFullscreen ? 'Réduire' : 'Plein écran' }}
+        </button>
+      </div>
     </div>
 
     <div
-      v-if="network"
+      v-if="network && !isFullscreen"
       class="space-y-1.5 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[11px] text-slate-600"
     >
       <div>
         <span class="font-semibold text-slate-700">Hiérarchie :</span>
         Zone → Power Station → Générateur · Charges dans la zone · Lignes entre zones
+      </div>
+      <div>
+        <span class="font-semibold text-slate-700">Coût ligne :</span>
+        cost(|P|) = c0 + c1·|P| + c2·P² — affiché sur chaque arête
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="font-semibold text-slate-700">Légende :</span>
@@ -284,15 +369,15 @@ watch(
       Aucun réseau chargé
     </div>
 
-    <div v-else class="h-[560px] w-full bg-slate-50">
+    <div v-else class="graph-canvas w-full bg-slate-50">
       <VueFlow
         :id="FLOW_ID"
         v-model:nodes="nodes"
         v-model:edges="edges"
         :node-types="nodeTypes"
         :default-viewport="{ zoom: 0.85, x: 0, y: 0 }"
-        :min-zoom="0.25"
-        :max-zoom="1.8"
+        :min-zoom="0.15"
+        :max-zoom="2.2"
         fit-view-on-init
         nodes-draggable
       >
@@ -304,6 +389,19 @@ watch(
 </template>
 
 <style>
+.graph-canvas {
+  height: 560px;
+}
+
+.graph-shell--fs {
+  border-radius: 0 !important;
+  background: #f8fafc;
+}
+
+.graph-shell--fs .graph-canvas {
+  height: calc(100vh - 64px);
+}
+
 .comp-chip--new {
   animation: comp-pop 0.55s cubic-bezier(0.22, 1.2, 0.36, 1) both;
 }

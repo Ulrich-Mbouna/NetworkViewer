@@ -2,13 +2,20 @@ import UIkit from 'uikit'
 
 type NotifyStatus = 'primary' | 'success' | 'warning' | 'danger'
 
-/** Sticky toast: stays until the user clicks close. */
+const TIMEOUTS: Record<NotifyStatus, number> = {
+  primary: 3500,
+  success: 3500,
+  warning: 5000,
+  danger: 6000,
+}
+
+/** Toast auto-dismiss (fermeture manuelle toujours possible). */
 export function notify(message: string, status: NotifyStatus = 'primary') {
   UIkit.notification({
     message: `<div class="tp-toast">${message}</div>`,
     status,
     pos: 'top-right',
-    timeout: 0,
+    timeout: TIMEOUTS[status],
   })
 }
 
